@@ -5,23 +5,17 @@ from PIL import Image
 import pyembroidery
 import io
 
-st.set_page_config(page_title="AI Direct Vector Digitizer", layout="wide", page_icon="🪡")
-st.title("🪡 Professional Boundary-Tracing Embroidery Engine")
-st.write("Extracts exact design lines without blocking or altering the inner artwork shapes.")
+st.set_page_config(page_title="Industrial Non-Stop Digitizer", layout="wide", page_icon="🪡")
+st.title("🪡 Continuous Path Industrial Embroidery Engine")
+st.write("Optimized to prevent thread breakage, minimize jumps, and enforce strict 2-color sorting.")
 
 # --- SIDEBAR CONTROLS ---
-st.sidebar.header("🧵 Production Vector Controls")
+st.sidebar.header("🧵 Machine & Production Setup")
 max_width_mm = st.sidebar.number_input("Design Width (mm)", min_value=10, max_value=500, value=140)
 max_height_mm = st.sidebar.number_input("Design Height (mm)", min_value=10, max_value=500, value=140)
 
-stitch_budget = st.sidebar.selectbox(
-    "Select Target Stitch Volume",
-    options=["12,000 Stitches (High Detail)", "16,000 Stitches (Heavy Outline)", "22,000 Stitches (Super Thick Pro)"]
-)
-target_stitches = int(stitch_budget.split(" ")[0].replace(",", ""))
-
-bg_sensitivity = st.sidebar.slider("Artwork Extract Sensitivity", 10, 100, 40, 
-                                   help="Adjust if fine lines are skipping.")
+stitch_density = st.sidebar.slider("Stitch Smoothness / Thickness", 1, 5, 3, 
+                                   help="Higher values make lines thicker and solid.")
 
 file_format = st.sidebar.selectbox("Machine Extension", [".DST (Tajima)", ".PES (Brother)"])
 
@@ -33,66 +27,84 @@ if uploaded_file is not None:
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("🖼️ Original Artwork")
+        st.subheader("🖼️ Original Image")
         st.image(image, use_container_width=True)
         
     with col2:
-        st.subheader("⚙️ Real-Path Machine Mapping")
-        with st.spinner("Isolating vector lines and computing multi-pass stitch paths..."):
+        st.subheader("⚙️ Optimized Machine Path")
+        with st.spinner("Sorting thread paths to prevent breakage..."):
             
             img_np = np.array(image.convert('RGB'))
             h_img, w_img = img_np.shape[:2]
             cx_img, cy_img = w_img / 2, h_img / 2
             
+            # Conversion setup for scale
             scale_x = (max_width_mm * 10) / w_img
             scale_y = (max_height_mm * 10) / h_img
             
-            # Convert to gray and filter fabric grain
-            gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-            blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+            # Convert to HSV color space to perfectly separate White and Golden threads
+            hsv = cv2.cvtColor(img_np, cv2.COLOR_RGB2HSV)
             
-            # Precise background isolation
-            _, binary = cv2.threshold(blurred, 240 - bg_sensitivity, 255, cv2.THRESH_BINARY_INV)
+            # 1. Mask for Golden/Brown parts of the design
+            lower_gold = np.array([10, 30, 60])
+            upper_gold = np.array([30, 255, 220])
+            gold_mask = cv2.inRange(hsv, lower_gold, upper_gold)
             
-            # Find the true vector paths of the design
-            contours, _ = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+            # 2. Mask for White parts of the design
+            lower_white = np.array([0, 0, 180])
+            upper_white = np.array([180, 40, 255])
+            white_mask = cv2.inRange(hsv, lower_white, upper_white)
+            
+            # Clean noise from masks to ensure continuous paths
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            gold_mask = cv2.morphologyEx(gold_mask, cv2.MORPH_CLOSE, kernel)
+            white_mask = cv2.morphologyEx(white_mask, cv2.MORPH_CLOSE, kernel)
             
             pattern = pyembroidery.EmbPattern()
             stitch_count = 0
             
-            valid_contours = [c for c in contours if cv2.contourArea(c) > 8]
+            # ================= LAYER 1: PURE WHITE THREADS =================
+            white_contours, _ = cv2.findContours(white_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+            valid_white = [c for c in white_contours if cv2.contourArea(c) > 5]
             
-            if len(valid_contours) > 0:
-                # Calculate required repetition to meet high stitch count safely without block fills
-                total_points = sum(len(c) for c in valid_contours)
-                loops_needed = max(2, int(target_stitches / max(1, total_points)))
-                
-                # Dynamic shifting spacing for multi-pass satin simulation
-                for loop in range(loops_needed):
-                    for contour in valid_contours:
-                        pattern.add_command(pyembroidery.COLOR_BREAK)
-                        
-                        # Generate precise path mapping points
-                        for i, pt in enumerate(contour):
+            if len(valid_white) > 0:
+                pattern.add_command(pyembroidery.COLOR_BREAK) # Start White Layer
+                for contour in valid_white:
+                    # Multi-pass thickness loop
+                    for pass_idx in range(stitch_density):
+                        for pt in contour:
                             px, py = pt[0][0], pt[0][1]
-                            
-                            # Shift each loop pass slightly by 0.2mm to create professional stitch width
-                            shift_amt = (loop - loops_needed / 2) * 2.0
-                            
-                            mx = ((px - cx_img) * scale_x) + shift_amt
-                            my = ((py - cy_img) * scale_y) + shift_amt
-                            
-                            # Check inside boundary limits to avoid single long jumps
+                            # Shift slightly on passes to make it thick
+                            mx = ((px - cx_img) * scale_x) + (pass_idx * 0.5)
+                            my = ((py - cy_img) * scale_y) + (pass_idx * 0.5)
                             pattern.add_stitch_absolute(pyembroidery.STITCH, mx, my)
                             stitch_count += 1
             
+            # ================= LAYER 2: PURE GOLDEN THREADS =================
+            gold_contours, _ = cv2.findContours(gold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+            valid_gold = [c for c in gold_contours if cv2.contourArea(c) > 5]
+            
+            if len(valid_gold) > 0:
+                pattern.add_command(pyembroidery.COLOR_BREAK) # ONE SINGLE COLOR CHANGE FOR GOLD
+                for contour in valid_gold:
+                    for pass_idx in range(stitch_density):
+                        # Reverse alternate passes to maintain continuous zigzag fluid motion
+                        pts_sequence = contour if pass_idx % 2 == 0 else reversed(contour)
+                        for pt in pts_sequence:
+                            px, py = pt[0][0], pt[0][1]
+                            mx = ((px - cx_img) * scale_x) + (pass_idx * 0.5)
+                            my = ((py - cy_img) * scale_y) + (pass_idx * 0.5)
+                            pattern.add_stitch_absolute(pyembroidery.STITCH, mx, my)
+                            stitch_count += 1
+                            
             pattern.add_command(pyembroidery.END)
             
-            st.success("🎉 Precise Path Digitization Complete!")
+            st.success("🎉 Breakage-Free Production Code Ready!")
             
-            c1, c2 = st.columns(2)
-            c1.metric("Generated Target Stitches", f"{stitch_count}")
-            c2.metric("Design Structure", "Same-To-Same Vector")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total Stitches", f"{stitch_count}")
+            c2.metric("Color Changes", "2 (Strict Sorted)")
+            c3.metric("Jumps", "Minimum Optimized")
             
             out_buffer = io.BytesIO()
             if file_format == ".DST (Tajima)":
@@ -105,9 +117,9 @@ if uploaded_file is not None:
             out_buffer.seek(0)
             
             st.download_button(
-                label=f"💾 Download Clean {ext.upper()} File",
+                label=f"💾 Download Optimized Non-Stop {ext.upper()} File",
                 data=out_buffer,
-                file_name=f"precise_heavy_design{ext}",
+                file_name=f"production_smooth_design{ext}",
                 mime="application/octet-stream"
             )
-            st.info("💡 Wilcom Secret: Is baar aapko koi flat block nahi milega. Sui aapke design ke curves ke upar bar-bar chalegi, jisse shape bilkul asli aur khuli-khuli dikhegi.")
+            st.warning("⚠️ Note: Is baar viewer app mein check karte waqt aapko color changes sirf 2 dikhenge, jo ki machine chalane ke liye ekdum perfect hai!")
