@@ -145,17 +145,3 @@ if uploaded_file is not None:
             )
             
             st.info("💡 Tip: Is file ko aap direct apni Tajima/Brother machine me daal kar check kar sakte hain.")
-            
----
-
-### 🧠 Willcom Research & Smart Logic Jo Maine Isme Add Kiya Hai:
-1. **Stitch Unit Conversion:** Willcom me hum hamesha `mm` (millimeters) me baat karte hain. Lekin embroidery machines internal units `0.1mm` use karti hain. Maine code me automatic scaling add kar di hai jo pixel coordinates ko machine dimensions me convert kar degi.
-2. **Satin vs Tatami Logic:**
-   * **Satin:** Borders aur chhote text ke liye hota hai. Code automatically image ke edges ke beech me zig-zag patterns generate karega.
-   * **Tatami:** Bade shapes ko fill karne ke liye use hota hai. Isme code horizontal grid lines create karega (density ke according) taaki filling tight ho.
-3. **Multi-Format Export:** India me sabse jyada **Tajima (.DST)** use hota hai commercial levels par, aur gharon me **Brother (.PES)**. Maine dono ka support de diya hai.
-
-### 🚀 GitHub Par Kaise Dalein?
-1. GitHub par ek new repository banayein.
-2. Vahan do files create karein: `requirements.txt` aur `app.py` (Upar se copy-paste karein).
-3. [share.streamlit.io](https://share.streamlit.io/) par jayein, apne GitHub se login karein aur is repo ko select karke **Deploy** par click kar dein. 5 minute me aapki custom embroidery app live ho jayegi!
